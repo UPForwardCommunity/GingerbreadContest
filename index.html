@@ -1,4 +1,3 @@
- 
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -78,6 +77,22 @@
             cursor: not-allowed;
             filter: grayscale(100%);
         }
+        
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(139, 0, 0, 0.9);
+            z-index: 50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s ease;
+        }
+        .loading-overlay.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="min-h-screen pb-12">
@@ -102,11 +117,7 @@
 
     <!-- Main Content -->
     <main class="container mx-auto px-4 relative z-10 max-w-6xl">
-        <div id="loading" class="text-white text-center text-2xl mt-10">
-            <i class="fas fa-snowflake fa-spin mr-2"></i> Loading Houses...
-        </div>
-
-        <div id="house-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 hidden">
+        <div id="house-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <!-- Cards will be injected here -->
         </div>
     </main>
@@ -119,11 +130,10 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, onSnapshot, runTransaction, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION ---
-        // REPLACE THESE URLS LATER WITH YOUR GITHUB IMAGE LINKS
         const housesData = [
             { id: 1, name: "The Candy Cottage", img: "https://placehold.co/600x400/8b4513/FFF?text=House+1" },
             { id: 2, name: "Frosty's Fortress", img: "https://placehold.co/600x400/8b4513/FFF?text=House+2" },
@@ -149,11 +159,15 @@
         // --- STATE ---
         let currentUser = null;
         let hasVotedLocal = localStorage.getItem('gingerbread_voted_2025');
+        // Store current votes in memory
+        let currentVotes = {}; 
 
         // --- DOM ELEMENTS ---
         const houseGrid = document.getElementById('house-grid');
-        const loadingDiv = document.getElementById('loading');
         const votedBanner = document.getElementById('voted-banner');
+
+        // --- INITIAL RENDER (Render immediately!) ---
+        renderHouses({}); 
 
         // --- AUTH & STARTUP ---
         async function initApp() {
@@ -183,16 +197,14 @@
             const votesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes');
 
             onSnapshot(votesCollection, (snapshot) => {
-                const votesMap = {};
+                const newVotes = {};
                 snapshot.forEach(doc => {
-                    votesMap[doc.id] = doc.data().count || 0;
+                    newVotes[doc.id] = doc.data().count || 0;
                 });
-                renderHouses(votesMap);
-                loadingDiv.classList.add('hidden');
-                houseGrid.classList.remove('hidden');
+                currentVotes = newVotes; // Update memory
+                updateVoteCounts();      // Update DOM
             }, (error) => {
                 console.error("Snapshot Error:", error);
-                loadingDiv.innerText = "Error loading votes. Please refresh.";
             });
         }
 
@@ -205,7 +217,7 @@
                 
                 // Card Container
                 const card = document.createElement('div');
-                card.className = "glass-panel overflow-hidden transform transition duration-300 hover:-translate-y-1 hover:shadow-xl";
+                card.className = "glass-panel overflow-hidden transform transition duration-300 hover:-translate-y-1 hover:shadow-xl relative";
                 
                 // Inner HTML
                 card.innerHTML = `
@@ -222,7 +234,7 @@
                         <div class="flex items-center justify-between mt-4">
                             <div class="text-gray-600 font-semibold bg-white/50 px-3 py-1 rounded-lg border border-gray-200">
                                 <i class="fas fa-heart text-red-500 mr-1"></i> 
-                                <span class="text-lg">${voteCount}</span> Votes
+                                <span id="count-house-${house.id}" class="text-lg">${voteCount}</span> Votes
                             </div>
                             
                             <button 
@@ -231,7 +243,7 @@
                                 class="btn-vote bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-full shadow-lg flex items-center gap-2 ${hasVotedLocal ? 'btn-disabled' : ''}"
                                 ${hasVotedLocal ? 'disabled' : ''}
                             >
-                                <i class="fas fa-vote-yea"></i> Vote
+                                <i class="fas fa-vote-yea"></i> ${hasVotedLocal ? 'Voted' : 'Vote'}
                             </button>
                         </div>
                     </div>
@@ -239,19 +251,40 @@
                 
                 houseGrid.appendChild(card);
             });
+            
+            // Check voted status again after render
+            if (hasVotedLocal) checkLocalVoteStatus();
+        }
+
+        // --- UPDATE COUNTS ONLY ---
+        // This is smoother than re-rendering the whole grid
+        function updateVoteCounts() {
+            housesData.forEach(house => {
+                const countSpan = document.getElementById(`count-house-${house.id}`);
+                if (countSpan) {
+                    const count = currentVotes[`house_${house.id}`] || 0;
+                    countSpan.innerText = count;
+                }
+            });
         }
 
         // --- VOTING LOGIC ---
         window.castVote = async (houseId) => {
-            if (!currentUser) return;
+            if (!currentUser) {
+                // Should catch this, but just in case
+                console.log("Waiting for auth...");
+                return;
+            }
             if (localStorage.getItem('gingerbread_voted_2025')) {
                 alert("You have already voted! One vote per person please. 🎄");
                 return;
             }
 
-            // Optimistic UI update to prevent double clicks immediately
+            // Optimistic UI update
             hasVotedLocal = true;
             localStorage.setItem('gingerbread_voted_2025', 'true');
+            
+            // Immediately disable buttons to prevent double-tap
             checkLocalVoteStatus();
             
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes', `house_${houseId}`);
@@ -267,7 +300,6 @@
                     }
                 });
                 
-                // Show celebration
                 showConfetti();
                 
             } catch (e) {
@@ -276,7 +308,14 @@
                 // Revert local state on error
                 localStorage.removeItem('gingerbread_voted_2025');
                 hasVotedLocal = false;
-                checkLocalVoteStatus();
+                
+                // Re-enable buttons
+                const buttons = document.querySelectorAll('.btn-vote');
+                buttons.forEach(btn => {
+                    btn.classList.remove('btn-disabled');
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fas fa-vote-yea"></i> Vote`;
+                });
             }
         }
 
@@ -294,7 +333,6 @@
         }
 
         function showConfetti() {
-            // Simple emoji burst
             const celebration = document.createElement('div');
             celebration.style.position = 'fixed';
             celebration.style.top = '50%';
@@ -315,4 +353,5 @@
     </script>
 </body>
 </html>
+
 
