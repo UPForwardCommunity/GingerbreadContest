@@ -130,10 +130,23 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, onSnapshot, runTransaction, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION ---
+        // Your real Firebase keys are here now!
+        const firebaseConfig = {
+          apiKey: "AIzaSyA1BmHBdRPSDQaimlE1Q7k5czsBntj3r-Q",
+          authDomain: "gingerbread-93c23.firebaseapp.com",
+          projectId: "gingerbread-93c23",
+          storageBucket: "gingerbread-93c23.firebasestorage.app",
+          messagingSenderId: "844960983142",
+          appId: "1:844960983142:web:087c95208340139113e5a7",
+          measurementId: "G-SBSNKYMGKB"
+        };
+
+        // --- IMAGE DATA ---
+        // TODO: Replace these URLs with your GitHub image links (e.g., https://yourusername.github.io/repo/house1.jpg)
         const housesData = [
             { id: 1, name: "The Candy Cottage", img: "https://placehold.co/600x400/8b4513/FFF?text=House+1" },
             { id: 2, name: "Frosty's Fortress", img: "https://placehold.co/600x400/8b4513/FFF?text=House+2" },
@@ -150,35 +163,29 @@
         ];
 
         // --- FIREBASE INIT ---
-        const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- STATE ---
         let currentUser = null;
         let hasVotedLocal = localStorage.getItem('gingerbread_voted_2025');
-        // Store current votes in memory
         let currentVotes = {}; 
 
         // --- DOM ELEMENTS ---
         const houseGrid = document.getElementById('house-grid');
         const votedBanner = document.getElementById('voted-banner');
 
-        // --- INITIAL RENDER (Render immediately!) ---
+        // --- INITIAL RENDER ---
         renderHouses({}); 
 
         // --- AUTH & STARTUP ---
         async function initApp() {
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                // Anonymous sign-in requires enabling "Anonymous" in Firebase Console > Authentication > Sign-in method
+                await signInAnonymously(auth);
             } catch (error) {
-                console.error("Auth Error:", error);
+                console.error("Auth Error (Check if Anonymous Auth is enabled in Console):", error);
             }
         }
 
@@ -194,15 +201,16 @@
 
         // --- FIRESTORE LISTENER ---
         function setupRealtimeListener() {
-            const votesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes');
+            // Updated path to be simple for your project: 'gingerbread_votes' collection
+            const votesCollection = collection(db, 'gingerbread_votes');
 
             onSnapshot(votesCollection, (snapshot) => {
                 const newVotes = {};
                 snapshot.forEach(doc => {
                     newVotes[doc.id] = doc.data().count || 0;
                 });
-                currentVotes = newVotes; // Update memory
-                updateVoteCounts();      // Update DOM
+                currentVotes = newVotes;
+                updateVoteCounts();
             }, (error) => {
                 console.error("Snapshot Error:", error);
             });
@@ -252,12 +260,10 @@
                 houseGrid.appendChild(card);
             });
             
-            // Check voted status again after render
             if (hasVotedLocal) checkLocalVoteStatus();
         }
 
         // --- UPDATE COUNTS ONLY ---
-        // This is smoother than re-rendering the whole grid
         function updateVoteCounts() {
             housesData.forEach(house => {
                 const countSpan = document.getElementById(`count-house-${house.id}`);
@@ -271,8 +277,8 @@
         // --- VOTING LOGIC ---
         window.castVote = async (houseId) => {
             if (!currentUser) {
-                // Should catch this, but just in case
                 console.log("Waiting for auth...");
+                alert("Hold on! Still connecting to the North Pole (database)... try again in a second.");
                 return;
             }
             if (localStorage.getItem('gingerbread_voted_2025')) {
@@ -284,10 +290,10 @@
             hasVotedLocal = true;
             localStorage.setItem('gingerbread_voted_2025', 'true');
             
-            // Immediately disable buttons to prevent double-tap
             checkLocalVoteStatus();
             
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes', `house_${houseId}`);
+            // Reference to the specific house document
+            const docRef = doc(db, 'gingerbread_votes', `house_${houseId}`);
 
             try {
                 await runTransaction(db, async (transaction) => {
@@ -304,8 +310,7 @@
                 
             } catch (e) {
                 console.error("Transaction failed: ", e);
-                alert("Oh no! The vote got stuck in the chimney. Please try again.");
-                // Revert local state on error
+                alert("Oh no! The vote got stuck. Please try again.");
                 localStorage.removeItem('gingerbread_voted_2025');
                 hasVotedLocal = false;
                 
@@ -322,7 +327,6 @@
         function checkLocalVoteStatus() {
             if (hasVotedLocal) {
                 votedBanner.classList.remove('hidden');
-                // Disable all buttons
                 const buttons = document.querySelectorAll('.btn-vote');
                 buttons.forEach(btn => {
                     btn.classList.add('btn-disabled');
@@ -353,5 +357,3 @@
     </script>
 </body>
 </html>
-
-
