@@ -1,0 +1,318 @@
+ 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gingerbread House Contest</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            background-color: #8B0000; /* Deep Christmas Red */
+            overflow-x: hidden;
+        }
+        
+        h1, h2, .festive-font {
+            font-family: 'Mountains of Christmas', cursive;
+        }
+
+        /* Snow Animation */
+        .snowflake {
+            color: #fff;
+            font-size: 1em;
+            font-family: Arial;
+            text-shadow: 0 0 1px #000;
+            position: fixed;
+            top: -10%;
+            z-index: 9999;
+            user-select: none;
+            cursor: default;
+            animation-name: snowflakes-fall, snowflakes-shake;
+            animation-duration: 10s, 3s;
+            animation-timing-function: linear, ease-in-out;
+            animation-iteration-count: infinite, infinite;
+            animation-play-state: running, running;
+        }
+
+        @keyframes snowflakes-fall {
+            0% { top: -10%; }
+            100% { top: 100%; }
+        }
+
+        @keyframes snowflakes-shake {
+            0% { transform: translateX(0px); }
+            50% { transform: translateX(80px); }
+            100% { transform: translateX(0px); }
+        }
+
+        .snowflake:nth-of-type(0) { left: 1%; animation-delay: 0s, 0s; }
+        .snowflake:nth-of-type(1) { left: 10%; animation-delay: 1s, 1s; }
+        .snowflake:nth-of-type(2) { left: 20%; animation-delay: 6s, .5s; }
+        .snowflake:nth-of-type(3) { left: 30%; animation-delay: 4s, 2s; }
+        .snowflake:nth-of-type(4) { left: 40%; animation-delay: 2s, 2s; }
+        .snowflake:nth-of-type(5) { left: 50%; animation-delay: 8s, 3s; }
+        .snowflake:nth-of-type(6) { left: 60%; animation-delay: 6s, 2s; }
+        .snowflake:nth-of-type(7) { left: 70%; animation-delay: 2.5s, 1s; }
+        .snowflake:nth-of-type(8) { left: 80%; animation-delay: 1s, 0s; }
+        .snowflake:nth-of-type(9) { left: 90%; animation-delay: 3s, 1.5s; }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-vote {
+            transition: all 0.2s ease;
+        }
+        .btn-vote:active {
+            transform: scale(0.95);
+        }
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-12">
+
+    <!-- Falling Snow -->
+    <div class="snowflakes" aria-hidden="true">
+        <div class="snowflake">❅</div><div class="snowflake">❆</div>
+        <div class="snowflake">❅</div><div class="snowflake">❆</div>
+        <div class="snowflake">❅</div><div class="snowflake">❆</div>
+        <div class="snowflake">❅</div><div class="snowflake">❆</div>
+        <div class="snowflake">❅</div><div class="snowflake">❆</div>
+    </div>
+
+    <!-- Header -->
+    <header class="text-center pt-8 pb-6 px-4 text-white relative z-10">
+        <h1 class="text-5xl md:text-6xl font-bold mb-2 drop-shadow-md">Gingerbread Contest</h1>
+        <p class="text-xl opacity-90 font-semibold">Vote for your favorite holiday masterpiece!</p>
+        <div id="voted-banner" class="hidden mt-4 bg-green-600 text-white px-4 py-2 rounded-full inline-block shadow-lg animate-bounce">
+            <i class="fas fa-check-circle mr-2"></i> You have cast your vote!
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 relative z-10 max-w-6xl">
+        <div id="loading" class="text-white text-center text-2xl mt-10">
+            <i class="fas fa-snowflake fa-spin mr-2"></i> Loading Houses...
+        </div>
+
+        <div id="house-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 hidden">
+            <!-- Cards will be injected here -->
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center text-white/70 mt-12 pb-6 relative z-10 text-sm">
+        <p>Made with holiday magic 🎄</p>
+    </footer>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, runTransaction, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURATION ---
+        // REPLACE THESE URLS LATER WITH YOUR GITHUB IMAGE LINKS
+        const housesData = [
+            { id: 1, name: "The Candy Cottage", img: "https://placehold.co/600x400/8b4513/FFF?text=House+1" },
+            { id: 2, name: "Frosty's Fortress", img: "https://placehold.co/600x400/8b4513/FFF?text=House+2" },
+            { id: 3, name: "Gumdrop Manor", img: "https://placehold.co/600x400/8b4513/FFF?text=House+3" },
+            { id: 4, name: "Peppermint Palace", img: "https://placehold.co/600x400/8b4513/FFF?text=House+4" },
+            { id: 5, name: "Santa's Workshop", img: "https://placehold.co/600x400/8b4513/FFF?text=House+5" },
+            { id: 6, name: "Sugarplum Chalet", img: "https://placehold.co/600x400/8b4513/FFF?text=House+6" },
+            { id: 7, name: "The Icing Igloo", img: "https://placehold.co/600x400/8b4513/FFF?text=House+7" },
+            { id: 8, name: "Cookie Castle", img: "https://placehold.co/600x400/8b4513/FFF?text=House+8" },
+            { id: 9, name: "Reindeer Barn", img: "https://placehold.co/600x400/8b4513/FFF?text=House+9" },
+            { id: 10, name: "Elven Estate", img: "https://placehold.co/600x400/8b4513/FFF?text=House+10" },
+            { id: 11, name: "Snowflake Station", img: "https://placehold.co/600x400/8b4513/FFF?text=House+11" },
+            { id: 12, name: "Gingerbread Highrise", img: "https://placehold.co/600x400/8b4513/FFF?text=House+12" }
+        ];
+
+        // --- FIREBASE INIT ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- STATE ---
+        let currentUser = null;
+        let hasVotedLocal = localStorage.getItem('gingerbread_voted_2025');
+
+        // --- DOM ELEMENTS ---
+        const houseGrid = document.getElementById('house-grid');
+        const loadingDiv = document.getElementById('loading');
+        const votedBanner = document.getElementById('voted-banner');
+
+        // --- AUTH & STARTUP ---
+        async function initApp() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                setupRealtimeListener();
+                checkLocalVoteStatus();
+            }
+        });
+
+        initApp();
+
+        // --- FIRESTORE LISTENER ---
+        function setupRealtimeListener() {
+            const votesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes');
+
+            onSnapshot(votesCollection, (snapshot) => {
+                const votesMap = {};
+                snapshot.forEach(doc => {
+                    votesMap[doc.id] = doc.data().count || 0;
+                });
+                renderHouses(votesMap);
+                loadingDiv.classList.add('hidden');
+                houseGrid.classList.remove('hidden');
+            }, (error) => {
+                console.error("Snapshot Error:", error);
+                loadingDiv.innerText = "Error loading votes. Please refresh.";
+            });
+        }
+
+        // --- RENDERING ---
+        function renderHouses(votesMap) {
+            houseGrid.innerHTML = '';
+            
+            housesData.forEach(house => {
+                const voteCount = votesMap[`house_${house.id}`] || 0;
+                
+                // Card Container
+                const card = document.createElement('div');
+                card.className = "glass-panel overflow-hidden transform transition duration-300 hover:-translate-y-1 hover:shadow-xl";
+                
+                // Inner HTML
+                card.innerHTML = `
+                    <div class="relative group">
+                        <img src="${house.img}" alt="${house.name}" class="w-full h-64 object-cover bg-gray-200">
+                        <div class="absolute top-0 right-0 bg-yellow-400 text-yellow-900 font-bold px-3 py-1 m-2 rounded-lg shadow-md border-2 border-yellow-200">
+                            #${house.id}
+                        </div>
+                    </div>
+                    
+                    <div class="p-5">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-2">${house.name}</h2>
+                        
+                        <div class="flex items-center justify-between mt-4">
+                            <div class="text-gray-600 font-semibold bg-white/50 px-3 py-1 rounded-lg border border-gray-200">
+                                <i class="fas fa-heart text-red-500 mr-1"></i> 
+                                <span class="text-lg">${voteCount}</span> Votes
+                            </div>
+                            
+                            <button 
+                                onclick="castVote(${house.id})" 
+                                id="btn-${house.id}"
+                                class="btn-vote bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-full shadow-lg flex items-center gap-2 ${hasVotedLocal ? 'btn-disabled' : ''}"
+                                ${hasVotedLocal ? 'disabled' : ''}
+                            >
+                                <i class="fas fa-vote-yea"></i> Vote
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                houseGrid.appendChild(card);
+            });
+        }
+
+        // --- VOTING LOGIC ---
+        window.castVote = async (houseId) => {
+            if (!currentUser) return;
+            if (localStorage.getItem('gingerbread_voted_2025')) {
+                alert("You have already voted! One vote per person please. 🎄");
+                return;
+            }
+
+            // Optimistic UI update to prevent double clicks immediately
+            hasVotedLocal = true;
+            localStorage.setItem('gingerbread_voted_2025', 'true');
+            checkLocalVoteStatus();
+            
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'gingerbread_votes', `house_${houseId}`);
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const sfDoc = await transaction.get(docRef);
+                    if (!sfDoc.exists()) {
+                        transaction.set(docRef, { count: 1 });
+                    } else {
+                        const newCount = (sfDoc.data().count || 0) + 1;
+                        transaction.update(docRef, { count: newCount });
+                    }
+                });
+                
+                // Show celebration
+                showConfetti();
+                
+            } catch (e) {
+                console.error("Transaction failed: ", e);
+                alert("Oh no! The vote got stuck in the chimney. Please try again.");
+                // Revert local state on error
+                localStorage.removeItem('gingerbread_voted_2025');
+                hasVotedLocal = false;
+                checkLocalVoteStatus();
+            }
+        }
+
+        function checkLocalVoteStatus() {
+            if (hasVotedLocal) {
+                votedBanner.classList.remove('hidden');
+                // Disable all buttons
+                const buttons = document.querySelectorAll('.btn-vote');
+                buttons.forEach(btn => {
+                    btn.classList.add('btn-disabled');
+                    btn.disabled = true;
+                    btn.innerHTML = `<i class="fas fa-check"></i> Voted`;
+                });
+            }
+        }
+
+        function showConfetti() {
+            // Simple emoji burst
+            const celebration = document.createElement('div');
+            celebration.style.position = 'fixed';
+            celebration.style.top = '50%';
+            celebration.style.left = '50%';
+            celebration.style.transform = 'translate(-50%, -50%)';
+            celebration.style.fontSize = '5rem';
+            celebration.style.pointerEvents = 'none';
+            celebration.style.zIndex = '9999';
+            celebration.innerText = '🎅🎉🍪';
+            celebration.style.animation = 'ping 1s cubic-bezier(0, 0, 0.2, 1) infinite';
+            
+            document.body.appendChild(celebration);
+            
+            setTimeout(() => {
+                celebration.remove();
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
+
