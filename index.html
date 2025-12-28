@@ -178,12 +178,13 @@
         import { getFirestore, collection, doc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION ---
-        // !!! SET THIS TO YOUR PARTY DATE !!!
-        // Format: YYYY-MM-DDTHH:MM:SS
-        // Example for Dec 25th 2025 at 8pm: '2025-12-25T20:00:00'
-        // For testing, I'm setting it to today at 8pm.
-        const today = new Date().toISOString().split('T')[0]; 
-        const VOTING_DEADLINE = new Date(`${today}T20:00:00`); 
+        
+        // !!! URGENT FIX FOR TONIGHT !!!
+        // Using explicit local time construction to avoid UTC/Timezone mixups.
+        // new Date(Year, Month (0-11), Day, Hour (0-23), Min, Sec)
+        // Month 11 is December.
+        // This sets the deadline to 8:00:00 PM on Dec 27, 2025 (Local Device Time)
+        const VOTING_DEADLINE = new Date(2025, 11, 27, 20, 0, 0); 
         
         const firebaseConfig = {
           apiKey: "AIzaSyA1BmHBdRPSDQaimlE1Q7k5czsBntj3r-Q",
@@ -195,7 +196,7 @@
           measurementId: "G-SBSNKYMGKB"
         };
 
-        // --- IMAGE DATA ---
+        // --- IMAGE DATA (11 HOUSES) ---
         const housesData = [
             { id: 1, name: "The Candy Cottage", img: "https://placehold.co/600x400/8b4513/FFF?text=House+1" },
             { id: 2, name: "Frosty's Fortress", img: "https://placehold.co/600x400/8b4513/FFF?text=House+2" },
@@ -270,9 +271,16 @@
             } else {
                 // Update countdown
                 const diff = VOTING_DEADLINE - now;
+                
+                const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
                 const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
                 const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-                timerDiv.innerText = `Voting closes in: ${minutes}m ${seconds}s`;
+                
+                let timeString = "";
+                if (hours > 0) timeString += `${hours}h `;
+                timeString += `${minutes}m ${seconds}s`;
+                
+                timerDiv.innerText = `Voting closes in: ${timeString}`;
             }
         }
 
@@ -483,5 +491,3 @@
     </script>
 </body>
 </html>
-
-
