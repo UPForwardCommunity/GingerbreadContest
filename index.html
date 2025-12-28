@@ -78,20 +78,31 @@
             filter: grayscale(100%);
         }
         
-        /* Loading Overlay */
-        .loading-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(139, 0, 0, 0.9);
-            z-index: 50;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            transition: opacity 0.5s ease;
+        /* Gold and Silver Text Gradients */
+        .text-gold {
+            background: linear-gradient(to right, #BF953F, #FCF6BA, #B38728, #FBF5B7, #AA771C);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
         }
-        .loading-overlay.fade-out {
+        .text-silver {
+            background: linear-gradient(to right, #757575, #E8E8E8, #9E9E9E, #ffffff, #595959);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        /* Podium Animation */
+        #winners-podium {
+            transition: all 1s ease-in-out;
+            max-height: 0;
             opacity: 0;
-            pointer-events: none;
+            overflow: hidden;
+        }
+        #winners-podium.show {
+            max-height: 1000px;
+            opacity: 1;
+            margin-bottom: 3rem;
         }
     </style>
 </head>
@@ -109,7 +120,9 @@
     <!-- Header -->
     <header class="text-center pt-8 pb-6 px-4 text-white relative z-10">
         <h1 class="text-5xl md:text-6xl font-bold mb-2 drop-shadow-md">Gingerbread Contest</h1>
-        <p class="text-xl opacity-90 font-semibold">Vote for your favorite holiday masterpiece!</p>
+        <p id="status-text" class="text-xl opacity-90 font-semibold">Vote for your favorite holiday masterpiece!</p>
+        <div id="timer" class="text-yellow-200 font-bold mt-2 text-lg"></div>
+        
         <div id="voted-banner" class="hidden mt-4 bg-green-600 text-white px-4 py-2 rounded-full inline-block shadow-lg animate-bounce">
             <i class="fas fa-check-circle mr-2"></i> You have cast your vote!
         </div>
@@ -117,6 +130,37 @@
 
     <!-- Main Content -->
     <main class="container mx-auto px-4 relative z-10 max-w-6xl">
+        
+        <!-- WINNERS PODIUM (Hidden until 8pm) -->
+        <div id="winners-podium" class="w-full">
+            <div class="glass-panel p-8 text-center bg-gradient-to-b from-white to-gray-100 border-4 border-yellow-400 mb-8 relative">
+                <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-6 py-2 rounded-full font-bold shadow-lg border-2 border-white">
+                    🏆 OFFICIAL RESULTS 🏆
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6 items-end">
+                    <!-- 2nd Place (Left) -->
+                    <div class="order-2 md:order-1 transform scale-90 opacity-90">
+                        <div class="text-4xl mb-2">🥈</div>
+                        <h3 class="text-2xl font-bold text-gray-600">2nd Place</h3>
+                        <div id="winner-2-img" class="h-40 w-full bg-gray-300 rounded-lg mb-2 bg-cover bg-center shadow-inner"></div>
+                        <h2 id="winner-2-name" class="text-xl font-bold text-gray-800">Calculating...</h2>
+                        <p id="winner-2-votes" class="text-gray-500 font-bold">0 Votes</p>
+                    </div>
+
+                    <!-- 1st Place (Right/Center) -->
+                    <div class="order-1 md:order-2 transform scale-105 z-10">
+                        <div class="text-6xl mb-2 animate-bounce">👑</div>
+                        <h3 class="text-3xl font-bold text-gold">1st Place</h3>
+                        <div id="winner-1-img" class="h-56 w-full bg-gray-300 rounded-lg mb-4 bg-cover bg-center shadow-xl border-4 border-yellow-300"></div>
+                        <h2 id="winner-1-name" class="text-3xl font-extrabold text-gray-900 festive-font">Calculating...</h2>
+                        <p id="winner-1-votes" class="text-xl text-red-600 font-bold">0 Votes</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- House Grid -->
         <div id="house-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <!-- Cards will be injected here -->
         </div>
@@ -134,7 +178,13 @@
         import { getFirestore, collection, doc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION ---
-        // Your real Firebase keys are here now!
+        // !!! SET THIS TO YOUR PARTY DATE !!!
+        // Format: YYYY-MM-DDTHH:MM:SS
+        // Example for Dec 25th 2025 at 8pm: '2025-12-25T20:00:00'
+        // For testing, I'm setting it to today at 8pm.
+        const today = new Date().toISOString().split('T')[0]; 
+        const VOTING_DEADLINE = new Date(`${today}T20:00:00`); 
+        
         const firebaseConfig = {
           apiKey: "AIzaSyA1BmHBdRPSDQaimlE1Q7k5czsBntj3r-Q",
           authDomain: "gingerbread-93c23.firebaseapp.com",
@@ -146,7 +196,6 @@
         };
 
         // --- IMAGE DATA ---
-        // TODO: Replace these URLs with your GitHub image links (e.g., https://yourusername.github.io/repo/house1.jpg)
         const housesData = [
             { id: 1, name: "The Candy Cottage", img: "https://placehold.co/600x400/8b4513/FFF?text=House+1" },
             { id: 2, name: "Frosty's Fortress", img: "https://placehold.co/600x400/8b4513/FFF?text=House+2" },
@@ -170,21 +219,28 @@
         let currentUser = null;
         let hasVotedLocal = localStorage.getItem('gingerbread_voted_2025');
         let currentVotes = {}; 
+        let isVotingClosed = false;
 
         // --- DOM ELEMENTS ---
         const houseGrid = document.getElementById('house-grid');
         const votedBanner = document.getElementById('voted-banner');
+        const winnersPodium = document.getElementById('winners-podium');
+        const statusText = document.getElementById('status-text');
+        const timerDiv = document.getElementById('timer');
 
         // --- INITIAL RENDER ---
         renderHouses({}); 
+        
+        // Start Timer Check
+        setInterval(checkTime, 1000);
+        checkTime(); // Run once immediately
 
         // --- AUTH & STARTUP ---
         async function initApp() {
             try {
-                // Anonymous sign-in requires enabling "Anonymous" in Firebase Console > Authentication > Sign-in method
                 await signInAnonymously(auth);
             } catch (error) {
-                console.error("Auth Error (Check if Anonymous Auth is enabled in Console):", error);
+                console.error("Auth Error:", error);
             }
         }
 
@@ -198,9 +254,30 @@
 
         initApp();
 
+        // --- TIME CHECKER ---
+        function checkTime() {
+            const now = new Date();
+            
+            if (now >= VOTING_DEADLINE) {
+                if (!isVotingClosed) {
+                    // This block runs once when deadline hits
+                    isVotingClosed = true;
+                    statusText.innerText = "Voting is officially closed!";
+                    timerDiv.innerText = "";
+                    revealWinners();
+                    disableAllVoting();
+                }
+            } else {
+                // Update countdown
+                const diff = VOTING_DEADLINE - now;
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                timerDiv.innerText = `Voting closes in: ${minutes}m ${seconds}s`;
+            }
+        }
+
         // --- FIRESTORE LISTENER ---
         function setupRealtimeListener() {
-            // Updated path to be simple for your project: 'gingerbread_votes' collection
             const votesCollection = collection(db, 'gingerbread_votes');
 
             onSnapshot(votesCollection, (snapshot) => {
@@ -210,6 +287,11 @@
                 });
                 currentVotes = newVotes;
                 updateVoteCounts();
+                
+                // If voting is closed, we must keep updating the podium live!
+                if (isVotingClosed) {
+                    revealWinners();
+                }
             }, (error) => {
                 console.error("Snapshot Error:", error);
             });
@@ -260,9 +342,9 @@
             });
             
             if (hasVotedLocal) checkLocalVoteStatus();
+            if (isVotingClosed) disableAllVoting();
         }
 
-        // --- UPDATE COUNTS ONLY ---
         function updateVoteCounts() {
             housesData.forEach(house => {
                 const countSpan = document.getElementById(`count-house-${house.id}`);
@@ -273,11 +355,57 @@
             });
         }
 
+        function disableAllVoting() {
+            const buttons = document.querySelectorAll('.btn-vote');
+            buttons.forEach(btn => {
+                btn.classList.add('btn-disabled');
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-lock"></i> Closed`;
+                btn.classList.replace('bg-red-600', 'bg-gray-500');
+            });
+            votedBanner.classList.add('hidden');
+        }
+
+        function revealWinners() {
+            // Sort houses by votes
+            const sortedHouses = [...housesData].sort((a, b) => {
+                const votesA = currentVotes[`house_${a.id}`] || 0;
+                const votesB = currentVotes[`house_${b.id}`] || 0;
+                return votesB - votesA;
+            });
+
+            const first = sortedHouses[0];
+            const second = sortedHouses[1];
+            
+            const firstVotes = currentVotes[`house_${first.id}`] || 0;
+            const secondVotes = currentVotes[`house_${second.id}`] || 0;
+
+            // Populate Podium
+            if (first) {
+                document.getElementById('winner-1-name').innerText = first.name;
+                document.getElementById('winner-1-votes').innerText = `${firstVotes} Votes`;
+                document.getElementById('winner-1-img').style.backgroundImage = `url('${first.img}')`;
+            }
+            if (second) {
+                document.getElementById('winner-2-name').innerText = second.name;
+                document.getElementById('winner-2-votes').innerText = `${secondVotes} Votes`;
+                document.getElementById('winner-2-img').style.backgroundImage = `url('${second.img}')`;
+            }
+
+            // Show animation
+            winnersPodium.classList.add('show');
+        }
+
         // --- VOTING LOGIC ---
         window.castVote = async (houseId) => {
+            // 1. Time Check Security
+            if (new Date() >= VOTING_DEADLINE) {
+                alert("Sorry! The deadline has passed. The elves have stopped counting.");
+                return;
+            }
+
             if (!currentUser) {
-                console.log("Waiting for auth...");
-                alert("Hold on! Still connecting to the North Pole (database)... try again in a second.");
+                alert("Hold on! Still connecting...");
                 return;
             }
             if (localStorage.getItem('gingerbread_voted_2025')) {
@@ -285,13 +413,10 @@
                 return;
             }
 
-            // Optimistic UI update
             hasVotedLocal = true;
             localStorage.setItem('gingerbread_voted_2025', 'true');
-            
             checkLocalVoteStatus();
             
-            // Reference to the specific house document
             const docRef = doc(db, 'gingerbread_votes', `house_${houseId}`);
 
             try {
@@ -313,18 +438,20 @@
                 localStorage.removeItem('gingerbread_voted_2025');
                 hasVotedLocal = false;
                 
-                // Re-enable buttons
-                const buttons = document.querySelectorAll('.btn-vote');
-                buttons.forEach(btn => {
-                    btn.classList.remove('btn-disabled');
-                    btn.disabled = false;
-                    btn.innerHTML = `<i class="fas fa-vote-yea"></i> Vote`;
-                });
+                // Re-enable if open
+                if (!isVotingClosed) {
+                    const buttons = document.querySelectorAll('.btn-vote');
+                    buttons.forEach(btn => {
+                        btn.classList.remove('btn-disabled');
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-vote-yea"></i> Vote`;
+                    });
+                }
             }
         }
 
         function checkLocalVoteStatus() {
-            if (hasVotedLocal) {
+            if (hasVotedLocal && !isVotingClosed) {
                 votedBanner.classList.remove('hidden');
                 const buttons = document.querySelectorAll('.btn-vote');
                 buttons.forEach(btn => {
@@ -356,3 +483,5 @@
     </script>
 </body>
 </html>
+
+
